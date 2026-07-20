@@ -1,0 +1,3 @@
+Open Motion Project by ACCAD / The Ohio State University
+Deed - Attribution 3.0 Unported - Creative Commons 
+This data was used to generate synthetic training data.

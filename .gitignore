@@ -73,3 +73,6 @@ Plugins/**/Intermediate/*
 
 # Cache files for the editor to use
 DerivedDataCache/*
+
+# Exceeds GitHub's 2GB per-file limit (even with LFS) - share separately (cloud storage)
+Plugins/Marketplace/MetaHumanBodyTracker/Content/Models/Offline/ViTPose.uasset

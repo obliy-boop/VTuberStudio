@@ -1,0 +1,3 @@
+Motion Capture Data
+コモンズ証 - アトリビューション 2.1（帰属） - Creative Commons 
+This data was used to generate synthetic training data.
