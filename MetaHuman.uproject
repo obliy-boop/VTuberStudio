@@ -33,6 +33,39 @@
 		},
 		{
 			"Name": "MetaHumanCharacter",
+			"Enabled": false
+		},
+		{
+			"Name": "PythonScriptPlugin",
+			"Enabled": true
+		},
+		{
+			"Name": "EditorScriptingUtilities",
+			"Enabled": true
+		},
+		{
+			"Name": "MetaHuman",
+			"Enabled": true,
+			"SupportedTargetPlatforms": [
+				"Win64",
+				"Linux",
+				"Mac"
+			]
+		},
+		{
+			"Name": "CaptureManagerApp",
+			"Enabled": true
+		},
+		{
+			"Name": "CaptureManagerDevices",
+			"Enabled": true
+		},
+		{
+			"Name": "CaptureManagerEditor",
+			"Enabled": true
+		},
+		{
+			"Name": "LiveLinkHub",
 			"Enabled": true
 		}
 	]

@@ -1,0 +1,2 @@
+# 외부 오케스트레이터(watchdog_runner.py)용 의존성. 시스템 Python에 설치.
+watchdog>=4.0.0
