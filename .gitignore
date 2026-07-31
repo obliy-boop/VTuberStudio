@@ -73,3 +73,15 @@ Plugins/**/Intermediate/*
 
 # Cache files for the editor to use
 DerivedDataCache/*
+
+# ---------------------------------------------------------------------------
+# GitHub LFS 2 GB 파일당 상한 초과 애셋 (리포지토리에 담을 수 없음)
+# ---------------------------------------------------------------------------
+# ViTPose.uasset 은 2.37 GiB 로 GitHub LFS 의 파일당 2 GB 제한을 넘어 푸시가
+# 거부된다. Fab 에서 MetaHumanBodyTracker 플러그인을 설치하면 함께 받아지는
+# 재배포 애셋이므로 리포지토리에 담지 않는다. 획득 방법은 Docs/LFS_Notes.md 참조.
+# (같은 폴더의 나머지 모델 파일들은 2 GB 미만이라 정상적으로 LFS 추적 중.)
+Plugins/Marketplace/MetaHumanBodyTracker/Content/Models/Offline/ViTPose.uasset
+
+# zip 으로 압축해도 2.21 GiB 로 상한을 넘는다(가중치라 압축률 약 7%). 로컬 산출물이므로 제외.
+Plugins/Marketplace/MetaHumanBodyTracker/Content/Models/Offline/ViTPose.zip
