@@ -114,7 +114,8 @@ VTuberStudio/
    ```
 3. `Content/Python/pipeline/`, `Automation/` 폴더 생성.
 4. 얼굴 타깃 스켈레톤 존재 확인:
-   `/Game/MetaHumans/Common/Face/Face_Archetype_Skeleton.Face_Archetype_Skeleton`
+   `/MetaHuman/IdentityTemplate/Face_Archetype_Skeleton`
+   (⚠️ `/Game/MetaHumans/Common/Face/...` **아님** — 5.7/5.8에서는 프로젝트 Content가 아니라 **엔진 플러그인 마운트**에 존재. §Phase 0 후속(2026-07-31) 참조)
 
 **✅ 검증 (Exit Criteria):**
 - [x] 에디터 재시작 후 Python 콘솔(또는 헤드리스 `-run=pythonscript`)에서 아래가 오류 없이 실행:
@@ -122,9 +123,14 @@ VTuberStudio/
   import unreal
   print(unreal.MetaHumanPerformance)                 # 클래스 존재
   print(unreal.MonoVideoIngestDevice)                # 인제스트 클래스 존재
-  print(unreal.load_asset("/Game/MetaHumans/Common/Face/Face_Archetype_Skeleton.Face_Archetype_Skeleton"))  # None 아님
+  print(unreal.load_asset("/MetaHuman/IdentityTemplate/Face_Archetype_Skeleton"))  # None 아님
+  ```
+  기대 출력:
+  ```
+  <Object '/MetaHuman/IdentityTemplate/Face_Archetype_Skeleton.Face_Archetype_Skeleton' (0x...) Class 'Skeleton'>
   ```
 - [x] 위 3개 클래스 로드 확인 → 통과.
+- [x] 얼굴 스켈레톤 로드 → 통과 (경로 정정 후, 2026-07-31).
 
 ### 🟢 Phase 0 실행 결과 (2026-07-20) — API 검증 통과 (4/4)
 헤드리스 검증 결과 (`-run=pythonscript`):
@@ -133,7 +139,7 @@ VTuberStudio/
 [PHASE0] PASS MonoVideoIngestDevice class
 [PHASE0] PASS MetaHumanPerformanceExportUtils
 [PHASE0] PASS IngestCapability_Options
-[PHASE0] INFO Face_Archetype_Skeleton: None   ← 블로커(아래)
+[PHASE0] INFO Face_Archetype_Skeleton: None   ← 당시 블로커 → 2026-07-31 경로 오류로 판명, 해소
 [PHASE0] RESULT ALL_PASS (4/4)
 ```
 - **완료:**
@@ -142,11 +148,42 @@ VTuberStudio/
   - `DefaultEngine.ini`에 Python 스크립트 경로(`/Game/Python/pipeline`) 등록.
   - 폴더 생성: `Content/Python/pipeline/`(+`config.py`), `Automation/`(+`requirements.txt`).
   - 헤드리스 기동 성공: Python 3.11.8 활성, MetaHuman Animator 활성화로 **최초 1회 pip 의존성 설치**(opencv/numpy/scipy/torch 등)가 프로젝트 `Intermediate/PipInstall` venv에 진행됨.
-- **⚠️ 블로커 (착수 전 반드시 해결):**
-  - **프로젝트에 `Content/MetaHumans` 폴더와 얼굴 스켈레톤(`Face_Archetype_Skeleton`)이 존재하지 않음.** 스켈레톤 애셋은 Mannequin(`SK_Mannequin`)뿐. MetaHuman Identity/캐릭터 애셋 없음.
-  - 영향: **Phase 2 익스포트가 이 스켈레톤을 타깃으로 하므로 그대로는 실패**. (솔브 자체는 CD만 있으면 가능하나 익스포트 타깃이 없음)
-  - 조치: Phase 1 착수 전 **MetaHuman을 프로젝트에 추가**(MetaHuman Creator/Fab에서 임포트하거나 Quixel Bridge)해야 함. 그러면 `Content/MetaHumans/Common/Face/Face_Archetype_Skeleton`이 생성됨. → **Q3/Q6와 직결**.
+- **~~⚠️ 블로커~~ → ✅ 2026-07-31 해소** (당시 판단은 아래와 같았으나 **원인은 애셋 부재가 아니라 경로 오류**였음. 후속 절 참조):
+  - ~~**프로젝트에 `Content/MetaHumans` 폴더와 얼굴 스켈레톤(`Face_Archetype_Skeleton`)이 존재하지 않음.** 스켈레톤 애셋은 Mannequin(`SK_Mannequin`)뿐. MetaHuman Identity/캐릭터 애셋 없음.~~
+  - ~~영향: **Phase 2 익스포트가 이 스켈레톤을 타깃으로 하므로 그대로는 실패**.~~
+  - ~~조치: Phase 1 착수 전 **MetaHuman을 프로젝트에 추가**(MetaHuman Creator/Fab에서 임포트하거나 Quixel Bridge)해야 함.~~
+  - → **MetaHuman 임포트 불필요.** 아카이브 스켈레톤은 엔진 플러그인에 이미 들어 있음.
 - **참고 경고(무해):** `/Script/MetaHuman.MetaHumanCharacter` 와 `/Script/MetaHumanCharacter.MetaHumanCharacter` 이름 충돌 경고 — 게임 모듈명이 `MetaHuman`이라 발생. 동작에는 지장 없음(필요 시 게임 모듈/플러그인 `ScriptName` 정리로 해소 가능).
+
+### 🟢 Phase 0 후속 (2026-07-31) — 얼굴 스켈레톤 경로 정정 (블로커 오진 수정)
+
+**결론: `Face_Archetype_Skeleton`은 처음부터 존재했다. `load_asset`이 `None`을 반환한 것은 애셋 부재가 아니라 경로가 틀렸기 때문.**
+
+`/Game/MetaHumans/Common/Face/...` 레이아웃은 **UE 5.0~5.5의 Quixel Bridge 내보내기 방식**이다. 5.7/5.8에서는 이 애셋이 프로젝트 Content가 아니라 **엔진 플러그인 마운트 포인트**에 들어 있다. 5.7·5.8 설치본 양쪽에서 디스크 확인:
+
+| 실제 파일 (Engine/Plugins/MetaHuman/…) | 마운트 경로 | 소유 플러그인 | VTuberStudio 상태 |
+|---|---|---|---|
+| `MetaHumanAnimator/Content/IdentityTemplate/Face_Archetype_Skeleton.uasset` | `/MetaHuman/IdentityTemplate/Face_Archetype_Skeleton` | MetaHuman Animator | ✅ **활성** (사용 대상) |
+| `MetaHumanCharacter/Content/Face/Face_Archetype_Skeleton.uasset` | `/MetaHumanCharacter/Face/Face_Archetype_Skeleton` | MetaHuman Creator | ❌ `"Enabled": false` → 로드 불가 |
+
+**마운트 이름 주의:** Animator 플러그인의 폴더명은 `MetaHumanAnimator`지만 디스크립터 파일이 `MetaHuman.uplugin`이라 **플러그인 이름 = `MetaHuman`**, 따라서 콘텐츠 마운트도 `/MetaHumanAnimator/`가 아니라 **`/MetaHuman/`**. (§Phase 0 완료 항목에서 `.uproject`에 `MetaHuman`으로 추가한 것과 동일한 이유.)
+
+실행 확인:
+```python
+print(unreal.load_asset("/MetaHuman/IdentityTemplate/Face_Archetype_Skeleton"))
+# <Object '/MetaHuman/IdentityTemplate/Face_Archetype_Skeleton.Face_Archetype_Skeleton' (0x...) Class 'Skeleton'>
+```
+> **검증 범위:** 위 런타임 로드는 **VTuberStudio(엔진 5.8) 에디터 Python 콘솔에서 직접 실행해 확인**(`Saved/Config/ConsoleHistory.ini`에 기록됨). 5.7 설치본에도 동일 경로·동일 디스크립터명(`MetaHuman.uplugin`)이 존재함을 디스크에서 확인 — 두 버전 공통.
+
+**계획에 미치는 영향:**
+- **`MetaHumans` 임포트가 선결 조건이 아니다.** Fab/Quixel Bridge에서 MetaHuman을 가져오지 않아도 얼굴 익스포트 타깃(아키타입 스켈레톤)을 확보할 수 있다. → **Q3/Q6의 전제 수정.**
+- **바디 파이프라인은 영향 없음.** 현재 진행 중인 바디 온리 경로의 타깃은 `config.BODY_SKELETON = SKEL_UE5_F`(Phase 1 기준선에서 확정)이며 이 정정과 무관하다. 즉 **Phase 2 착수를 막는 요소는 아니었다** — 당시 "블로커" 판정 자체가 과대평가.
+- **`load_asset` 실패 진단법:** `load_asset`은 실패 시 `None`만 반환하고 이유를 알려주지 않는다(플러그인 미활성 시엔 `LogUObjectGlobals` 경고조차 안 뜸). 경로 상수를 쓰는 코드는 `unreal.EditorAssetLibrary.does_asset_exist(path)`로 선체크하고, 실패 시 "플러그인 활성화 여부 확인" 메시지를 남길 것. → `phase0_check.py`에 반영 권장.
+
+**후속 조치:**
+- [x] VTuberStudio(5.8) 세션에서 로드 확인 — 통과.
+- [ ] `config.py`의 `FACE_SKELETON` 상수 정정 (아직 구 경로 `/Game/MetaHumans/Common/Face/...`).
+- [ ] `phase0_check.py`에 얼굴 스켈레톤 로드 체크 추가 (현재 4개 클래스 `hasattr`만 검사하고 스켈레톤은 확인하지 않음 — Phase 0 자가진단이 이 오진을 못 잡은 이유).
 
 ### 에디터 툴 (Phase 0) — `MHA Phase 0: API 자가진단`
 헤드리스 자가진단(§Phase 0 검증)을 **에디터 메뉴 버튼**으로 실행. 클릭 시 필수 클래스/스켈레톤 로드 결과를 `Output Log`와 팝업으로 보고.
@@ -254,7 +291,7 @@ def run():
 **목표:** Phase 1에서 만든 **기존 CD 애셋**을 입력으로, Performance 생성 → 처리 → AnimSequence 익스포트를 **코드로** 수행. (인제스트는 아직 수동. 가장 확실한 부분부터 자동화.)
 
 ### 🟡 방향 전환 (2026-07-20): 바디 모캡 중심 (face 보류)
-- 사용자 결정: "face 지금 필요 없음". → 얼굴 스켈레톤 부재 블로커를 **우회**하고 바디 모캡 우선.
+- 사용자 결정: "face 지금 필요 없음". → 바디 모캡 우선. (당시 근거였던 "얼굴 스켈레톤 부재"는 2026-07-31 경로 오류로 판명 — §Phase 0 후속. **바디 우선 결정 자체는 유지**, 사용자 요구가 바디이므로.)
 - 솔브: `body_tracking=True`, `face_tracking=False`(기본). 필요 시 `enable_face=True`로 전환.
 - 익스포트: 타깃을 `Face_Archetype_Skeleton`이 아닌 **바디 스켈레톤/스켈레탈 메시**로. `target_skeleton_path` 파라미터로 분리(하드코딩 제거). 기본 후보 `SK_Mannequin`(`config.BODY_SKELETON`), 최종 타깃은 Phase 2 실검증에서 확정.
 - **작성 완료(코드):** `config.py`(경로/타깃 상수), `step2_solve.py`(create/configure/process 분리, 바디 기본), `step3_export.py`(target 파라미터화, 헤드리스 대화상자 억제, 자동 저장). 문법 검사(py_compile) 통과. **실행 검증은 기존 CD 애셋 확보 후 수행.**
@@ -303,7 +340,7 @@ def create_and_process(capture_data_path: str, storage_path: str, *,
 ```python
 # Content/Python/pipeline/step3_export.py
 import unreal
-FACE_SKELETON = "/Game/MetaHumans/Common/Face/Face_Archetype_Skeleton.Face_Archetype_Skeleton"
+FACE_SKELETON = "/MetaHuman/IdentityTemplate/Face_Archetype_Skeleton"   # 5.7/5.8: 엔진 플러그인 마운트
 
 def export_anim_sequence(perf, out_dir: str, out_name: str) -> unreal.AnimSequence:
     s = unreal.MetaHumanPerformanceExportAnimationSettings()
@@ -674,5 +711,5 @@ def retry_failed():
 | Q3 | 바디 익스포트 정확 경로(얼굴 스켈레톤 외 바디 타깃 필요 여부) | Phase 2 |
 | Q4 | 인제스트 후 CD 애셋 경로 자동 확보 방식 | Phase 3 |
 | Q5 | 배치 다중 테이크(에디터 1회 기동) | Phase 6 |
-| Q6 | 모노 footage용 Identity 권장 여부 | Phase 1~2 |
+| Q6 | 모노 footage용 Identity 권장 여부 | Phase 1~2 — ⚠️ 전제 수정(2026-07-31): 아키타입 스켈레톤은 엔진 플러그인에 있어 **MetaHuman 임포트 불필요**. §Phase 0 후속 |
 | Q7 | 헤드리스 GPU/라이선스/동시 인스턴스 제한 | Phase 4 |
