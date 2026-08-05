@@ -436,48 +436,166 @@ def find_new_capture_data(search_root: str, known_before: set[str]) -> list[str]
 
 > `capture.*` 모듈 접근은 Q2에 따라 엔진 플러그인 Python 경로를 `sys.path`에 추가하거나 프로젝트로 복제. 버전 고정을 위해 **복제 권장**.
 
-**✅ 검증 (Exit Criteria):**
-- [ ] Python 콘솔에서:
-  ```python
-  before = set(unreal.EditorAssetLibrary.list_assets("/Game/CaptureManager/Imports", recursive=True))
-  import step1_ingest
-  step1_ingest.ingest_mono_video(r"D:/incoming/take01")
-  new_cd = step1_ingest.find_new_capture_data("/Game/CaptureManager/Imports", before)
-  print(new_cd)   # 새 CD_ 경로 1개 이상
-  ```
-- [ ] 새 `CD_*` 애셋이 생성되고 경로가 정확히 반환됨.
-- [ ] 그 CD를 Phase 2 `create_and_process`에 넣어 처리까지 성공(인제스트→솔브 연결 확인).
-- [ ] **경로 A로 단일 에디터 세션 내 인제스트가 성공**하면 Q1 확정. 실패 시 경로 B(LiveLink Hub 상주)로 전환하고 문서에 기록.
+### 🔴 Q1 확정 (2026-07-31) — `capture.*` / UnrealEndpointManager 경로는 에디터에서 쓸 수 없다
 
-### 🛠 에디터 툴 (Phase 3) — `MHA ▸ Phase 3: 인제스트 (폴더 선택)`
-버튼을 누르면 **디렉터리 선택 다이얼로그**가 열리고, 고른 mp4 아카이브 폴더를 인제스트해 새 `CD_*` 애셋 경로를 보고.
-```python
-# Content/Python/pipeline/tool_actions.py  (이어서)
-import step1_ingest
+첫 구현(엔진 `capture` 패키지 + `UnrealEndpointManager`)을 에디터에서 실행한 결과:
 
-def _pick_directory(title="폴더 선택"):
-    picked = unreal.EditorDialog.open_directory_dialog(title, "")   # (title, default_path)
-    # 반환 형식은 5.8에서 (bool, path) 또는 path 문자열 — 방어적으로 처리
-    if isinstance(picked, tuple):
-        ok, path = picked
-        return path if ok else None
-    return picked or None
-
-def ingest_pick_folder():
-    folder = _pick_directory("인제스트할 mp4 폴더 선택")
-    if not folder:
-        return
-    before = set(unreal.EditorAssetLibrary.list_assets(config.IMPORT_ROOT, recursive=True))
-    with unreal.ScopedSlowTask(1, f"Ingest: {folder}") as t:
-        t.make_dialog(True)
-        step1_ingest.ingest_mono_video(folder)
-    new_cd = step1_ingest.find_new_capture_data(config.IMPORT_ROOT, before)
-    msg = "새 CD:\n" + "\n".join(new_cd) if new_cd else "생성된 CD 없음"
-    unreal.log(f"[PHASE3] {msg}")
-    unreal.EditorDialog.show_message("MHA Phase 3", msg, unreal.AppMsgType.OK)
 ```
-> `EditorDialog.open_directory_dialog` 반환 시그니처는 5.8 설치본에서 실확인 필요(Q4/Q2와 함께). 다이얼로그 API가 다르면 `SystemLibrary`/입력창으로 대체.
-- **검증:** 폴더 선택 → 새 `CD_*` 경로 팝업. 그 CD를 Phase 2 버튼에 그대로 연결 가능.
+LogPython: [MHA-INGEST] archive=D:/DanceVideo/converted
+LogPython: [MHA-INGEST] expr=<Auto> host=Supergene work=C:\...\Temp\MHA_IngestConversion
+LogPython: Error: [MHA-TOOL] 인제스트 실패: Timed out waiting for endpoint: Supergene
+```
+
+**원인:** `CaptureManagerApp/Content/Python/examples/` 의 예제들은 **LiveLink Hub 앱 안에서**
+실행되도록 만들어진 것이다. `UnrealEndpointManager` 는 Hub 가 *별도의* 에디터 인스턴스를
+네트워크로 발견하는 장치이므로, 에디터 안에서 호출하면 자기 자신을 찾지 못해 반드시 타임아웃한다.
+초안이 이 예제를 "경로 A(에디터 내)"의 근거로 삼은 것이 오류였다.
+
+**해결: 에디터 전용 API 가 별도로 존재한다.** → `unreal.CaptureManagerIngestBlueprintLibrary`
+
+```
+CaptureManagerEditor/Source/CaptureManagerIngestBlueprint/Private/
+  CaptureManagerIngestBlueprintLibrary.h
+CaptureManagerEditor/Content/Python/
+  example_ingest_sync.py    ← 동기 인제스트
+  example_ingest_scan.py    ← 폴더 스캔/타입 라우팅
+  example_ingest_async.py   ← 델리게이트 기반 비동기
+```
+
+| 항목 | `capture.*` + EndpointManager | `CaptureManagerIngestBlueprintLibrary` |
+|---|---|---|
+| 실행 위치 | LiveLink Hub | **에디터 (및 커맨드릿)** |
+| 엔드포인트 발견 | 필요 (에디터 내에선 실패) | **불필요** |
+| 반환값 | 실패한 테이크 목록 | **`UFootageCaptureData*` 직접 반환** |
+| CD 경로 확보(Q4) | 전/후 스냅샷 차집합 필요 | **불필요 — 객체를 그대로 받음** |
+
+**따라서 Q1 = 경로 A 가 맞지만, 수단이 달랐다.** LiveLink Hub 상주(경로 B)는 필요 없다.
+Q4 는 스냅샷 차집합 자체가 불필요해져 소멸했다.
+
+사용하는 함수 (전부 `_sync` 는 블로킹, `(capture_data, error)` 튜플 반환):
+
+```python
+library = unreal.CaptureManagerIngestBlueprintLibrary
+params  = unreal.CaptureManagerConversionParams()      # ImageFormat 기본 PNG → JPG로 변경
+
+capture_data, error = library.ingest_mono_video_sync(video, audio, slate, take_num, params)
+capture_data, error = library.ingest_take_archive_sync(path, params)
+capture_data, error = library.ingest_live_link_face_sync(path, params)
+capture_data, error = library.ingest_stereo_video_sync(a, b, audio, calib, slate, n, params)
+capture_data, error = library.ingest_calibration_sync(calib_path, name)
+
+take_dirs = library.find_take_directories(root, recursive)   # 폴더 인벤토리
+library.cancel_ingest(ingest_id)                             # 비동기용
+```
+
+### ⚠️ `find_take_directories` 의 함정 — 한 폴더에 비디오 3개면 건너뛴다
+
+`FindTakeDirectories` 는 **디렉터리 1개 = 테이크 1개**로 인벤토리를 만든다. 라우팅은
+`video_files` 길이가 **2(스테레오) 또는 1(모노)** 일 때만 성립하고, 그 외에는 타입 판별이 안 된다.
+
+현재 데이터(`D:\DanceVideo\converted\`)는 mp4 **3개가 한 폴더에** 있다:
+
+```
+Cavucadinha_ Remix_30fps.mp4
+Hypnotize_Challenge_30fps.mp4
+aespa_darkarts_dance_30fps.mp4
+```
+
+→ 폴더 스캔 방식으로는 **전부 건너뛰어진다.** 그래서 파일 단위로 처리하는
+`ingest_videos_in_folder()` 를 별도로 두고, 메뉴도 두 항목으로 나눴다.
+
+| 데이터 배치 | 사용할 함수 / 메뉴 |
+|---|---|
+| 폴더 바로 아래 mp4 여러 개 (현재 상황) | `ingest_videos_in_folder()` / **`Phase 3: 인제스트 (폴더 내 파일별)`** |
+| 테이크별 하위 폴더 구조, `.cptake`, LiveLink Face, 스테레오 | `ingest_folder()` / `Phase 3: 인제스트 (테이크 폴더 스캔)` |
+
+### 🟢 Phase 3 구현 (2026-07-31) — 초안의 4개 오류 수정
+
+**작성 파일:** `step1_ingest.py`(신규), `mha_tool.py`(인제스트 액션 2개 추가), `mha_menu.py`(메뉴 항목 2개), `config.py`(`INGEST_WORK_DIR`/`INGEST_DEFAULT_DIR`). 전부 `py_compile` 통과.
+
+근거는 추측이 아니라 **5.8 설치본의 엔진 공식 예제/모듈**을 읽어 확정했다:
+
+```
+Engine/Plugins/VirtualProduction/CaptureManager/CaptureManagerApp/Content/Python/
+  examples/mono_video_ingest.py        ← 흐름의 원본
+  capture/devices.py                   ← MonoVideoIngestDevice
+  capture/ingest.py                    ← ingest_takes
+  capture/unreal_endpoint_manager.py   ← UnrealEndpointManager
+```
+
+**수정한 초안 오류 4건:**
+
+1. **`ingest_takes` 의 반환값은 "실패한" 테이크다.** 초안은 `return ingest_takes(dev, settings)` 로 이를 성공 결과처럼 돌려줬다 (`capture/ingest.py:130` — `:return: List of takes which failed to ingest`). 빈 리스트가 성공이다. 구현에서는 `(new_capture_data_paths, failed_takes)` 튜플로 분리해 반환한다.
+
+2. **`find_new_capture_data` 의 조건식이 연산자 우선순위 때문에 무력화됐다.**
+   ```python
+   if a not in known_before and "/CD_" in a or unreal.Paths.get_base_filename(a).startswith("CD_")
+   ```
+   `and` 가 `or` 보다 강하게 묶여 `(새것 and "/CD_") or (이름이 CD_로 시작)` 이 되고, 두 번째 절이 `known_before` 를 완전히 무시해 **기존 CD 까지 전부 반환**한다. 집합 차집합으로 교체했다.
+
+3. **판별을 이름 대신 클래스로.** `CD_` 접두사 heuristic 대신 `asset_class_path.asset_name == "FootageCaptureData"` 로 판별한다. 또한 인제스트 직후에는 애셋 레지스트리가 새 애셋을 모를 수 있어 `scan_paths_synchronous(force_rescan=True)` 를 넣었다.
+
+4. **`unreal.EditorDialog.open_directory_dialog` 는 존재하지 않는다.** → 아래 에디터 툴 절 참조.
+
+**Q1/Q2/Q4 정리:**
+
+| # | 항목 | 결론 |
+|---|---|---|
+| Q1 | 경로 A(에디터 내) vs B(LiveLink Hub 상주) | ✅ **경로 A 확정.** 단 수단은 `capture.*` 가 아니라 `CaptureManagerIngestBlueprintLibrary`. 위 절 참조. |
+| Q2 | `capture.*` 접근: sys.path vs 복제 | ✅ **소멸.** `capture` 패키지를 아예 쓰지 않으므로 sys.path 조작도 복제도 필요 없다. |
+| Q4 | CD 경로 자동 확보 | ✅ **소멸.** `ingest_*_sync` 가 `FootageCaptureData` 를 직접 반환한다. |
+
+**✅ 검증 (Exit Criteria):**
+- [x] 코드 작성 및 문법 검사 통과. 사용한 모든 UE API 를 5.8 헤더/엔진 Python 모듈에서 실확인.
+- [ ] **실행 검증 미완** — 인제스트할 mp4 테이크 폴더가 필요하다. 에디터에서 `MHA ▸ Phase 3: 인제스트 (폴더 선택)` 실행:
+  ```python
+  # 콘솔에서 직접 하려면
+  import step1_ingest
+  new_paths, failed = step1_ingest.ingest_and_find_new(r"D:/incoming/take01")
+  print(new_paths, failed)   # failed 가 빈 리스트여야 성공
+  ```
+- [ ] 새 `FootageCaptureData` 애셋이 생성되고 경로가 정확히 반환됨.
+- [ ] 그 CD를 Phase 2 `create_and_process`에 넣어 처리까지 성공 → `MHA ▸ Phase 3: 인제스트 + 솔브 + 익스포트` 버튼이 이 연결을 한 번에 검증.
+- [ ] 경로 A가 실제로 동작하면 Q1 확정. `TimeoutError: Timed out waiting for endpoint` 가 나면 경로 B(LiveLink Hub 상주)로 전환하고 여기 기록.
+
+### 🛠 에디터 툴 (Phase 3) — 메뉴 항목 2개
+
+`mha_menu.py` 에 등록됨 (구현체는 `mha_tool.py`, 계획서 초안의 `tool_actions.py` 아님):
+
+| 메뉴 | 함수 | 동작 |
+|---|---|---|
+| `MHA ▸ Phase 3: 인제스트 (폴더 선택)` | `mha_tool.ingest_pick_folder()` | 폴더 선택 → 인제스트 → 새 CD 경로 팝업 |
+| `MHA ▸ Phase 3: 인제스트 + 솔브 + 익스포트` | `mha_tool.ingest_solve_export_pick_folder()` | 위 + 생성된 CD 전부 솔브·익스포트 (Phase 3→2 연결 검증) |
+
+#### 🔴 `unreal.EditorDialog.open_directory_dialog` 는 존재하지 않는다
+
+초안 스케치는 `AttributeError` 로 즉시 실패한다. 5.8 헤더에서 확인한 사실:
+
+- `UEditorDialogLibrary`(= `unreal.EditorDialog`)가 노출하는 함수는 **4개뿐**이다 —
+  `ShowMessage`, `ShowSuppressableWarningDialog`, `ShowObjectDetailsView`, `ShowObjectsDetailsView`.
+  (`EditorScriptingUtilities/Public/EditorDialogLibrary.h`)
+- `OpenDirectoryDialog` 는 `IDesktopPlatform` / `ISlateFileDialogModule` 의 **C++ 가상 함수일 뿐 `UFUNCTION` 이 아니다.**
+  엔진 전체를 검색해도 리플렉션 노출이 없어 Python/BP 에서 호출할 수 없다.
+
+#### 채택한 대안 — `show_object_details_view` + `MonoVideoIngestDeviceSettings`
+
+`UMonoVideoIngestDeviceSettings`(UObject)의 디테일 뷰를 모달로 띄운다.
+
+- `TakeDirectory` 가 `FDirectoryPath` 라 **폴더 찾아보기 버튼이 그대로 렌더링**된다.
+- `VideoDiscoveryExpression`(`FTakeDiscoveryExpression`)도 같은 창에서 지정 가능 — 초안에는 없던 기능.
+- **디바이스가 실제로 사용하는 설정 타입**이라 필드가 어긋날 여지가 없다 (`capture/devices.py:144-147` 이 동일 타입을 씀).
+- 반환값 `bool` 로 OK/취소를 구분한다.
+
+```python
+settings = unreal.MonoVideoIngestDeviceSettings()
+settings.set_editor_property("take_directory", unreal.DirectoryPath(config.INGEST_DEFAULT_DIR))
+accepted = unreal.EditorDialog.show_object_details_view(
+    unreal.Text("MHA Phase 3 — 인제스트할 mp4 폴더"), settings, options)
+folder     = settings.take_directory.path
+expression = settings.video_discovery_expression.value or "<Auto>"
+```
+
+- **검증:** 폴더 선택 → 새 CD 경로 팝업. 두 번째 버튼으로 솔브·익스포트까지 한 번에 확인.
 
 ---
 
@@ -706,10 +824,10 @@ def retry_failed():
 
 | # | 항목 | 어느 Phase에서 확정 |
 |---|---|---|
-| Q1 | 인제스트 경로 A(에디터 내) vs B(LiveLink Hub 상주) | Phase 3 |
-| Q2 | `capture.*` 모듈: sys.path 추가 vs 프로젝트 복제 | Phase 3 |
+| Q1 | 인제스트 경로 A(에디터 내) vs B(LiveLink Hub 상주) | ✅ **해결(2026-07-31): 경로 A** — `CaptureManagerIngestBlueprintLibrary` 사용, Hub 불필요 |
+| Q2 | ~~`capture.*` 모듈: sys.path 추가 vs 프로젝트 복제~~ | ✅ **소멸(2026-07-31)** — `capture` 패키지를 쓰지 않음 |
 | Q3 | 바디 익스포트 정확 경로(얼굴 스켈레톤 외 바디 타깃 필요 여부) | Phase 2 |
-| Q4 | 인제스트 후 CD 애셋 경로 자동 확보 방식 | Phase 3 |
+| Q4 | ~~인제스트 후 CD 애셋 경로 자동 확보 방식~~ | ✅ **소멸(2026-07-31)** — `ingest_*_sync` 가 CD 객체를 직접 반환 |
 | Q5 | 배치 다중 테이크(에디터 1회 기동) | Phase 6 |
 | Q6 | 모노 footage용 Identity 권장 여부 | Phase 1~2 — ⚠️ 전제 수정(2026-07-31): 아키타입 스켈레톤은 엔진 플러그인에 있어 **MetaHuman 임포트 불필요**. §Phase 0 후속 |
 | Q7 | 헤드리스 GPU/라이선스/동시 인스턴스 제한 | Phase 4 |

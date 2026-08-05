@@ -4,6 +4,17 @@
 # 인제스트된 FootageCaptureData(CD_*)가 생성되는 루트
 IMPORT_ROOT = "/Game/CaptureManager/Imports"
 
+# --- Phase 3 인제스트 설정 ---
+# 인제스트 중간 산출물(jpeg 프레임/wav)이 쌓이는 임시 작업 폴더.
+# 엔진 공식 예제는 tempdir 아래를 쓴다. 테이크당 수 GB가 될 수 있으니 여유 있는 드라이브로.
+import os as _os
+import tempfile as _tempfile
+
+INGEST_WORK_DIR = _os.path.join(_tempfile.gettempdir(), "MHA_IngestConversion")
+
+# 인제스트 폴더 선택 다이얼로그의 기본 경로 (빈 문자열이면 미지정)
+INGEST_DEFAULT_DIR = r"D:\incoming"
+
 # 솔브 산출물(MetaHumanPerformance) 저장 위치
 PERF_DIR = "/Game/MHA/Performances"
 

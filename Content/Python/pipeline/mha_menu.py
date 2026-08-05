@@ -28,6 +28,15 @@ def register():
     _add_entry(mha, "Phase0Check", "Phase 0: API 자가진단",
                "필수 클래스/스켈레톤 로드 점검 (헤드리스 결과와 동일해야 함)",
                "import phase0_check; phase0_check.run()")
+    _add_entry(mha, "IngestPerFile", "Phase 3: 인제스트 (폴더 내 파일별)",
+               "폴더 바로 아래의 mp4/mov 각각을 개별 테이크로 인제스트",
+               "import mha_tool; mha_tool.ingest_pick_folder_per_file()")
+    _add_entry(mha, "IngestFolder", "Phase 3: 인제스트 (테이크 폴더 스캔)",
+               "FindTakeDirectories 로 폴더 구조를 스캔해 타입별로 인제스트",
+               "import mha_tool; mha_tool.ingest_pick_folder()")
+    _add_entry(mha, "IngestSolveExport", "Phase 3: 인제스트 + 솔브 + 익스포트",
+               "폴더 선택 → 파일별 인제스트 → 생성된 CD 전부 솔브 후 AnimSequence 익스포트",
+               "import mha_tool; mha_tool.ingest_solve_export_pick_folder()")
     _add_entry(mha, "SolveExport", "Solve + Export (선택 CD)",
                "선택한 FootageCaptureData를 바디 솔브 후 AnimSequence로 익스포트",
                "import mha_tool; mha_tool.solve_export_selected()")
